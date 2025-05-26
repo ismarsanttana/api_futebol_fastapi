@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 
 # --- Configurações ---
 API_FUTEBOL_BASE_URL = "https://api.api-futebol.com.br/v1"
-API_FUTEBOL_KEY = "test_9898838f11ffc2a9e6831ffc4621dc" # Sua chave da api-futebol
+API_FUTEBOL_KEY = "live_e25d485aad41c97d4c33f8ebf4f35c" # Sua chave da api-futebol
 CAMPEONATO_BRASILEIRAO_ID = "10" # ID do campeonato
 # Cache da API FastAPI válido por 1 hora (3600 segundos)
 CACHE_DURATION_SECONDS = 1 * 60 * 60
