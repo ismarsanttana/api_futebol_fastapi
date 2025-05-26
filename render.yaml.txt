@@ -1,0 +1,17 @@
+# render.yaml
+services:
+  - type: web
+    name: api-futebol-fastapi # Nome do seu serviço (pode mudar)
+    env: python
+    plan: free # Ou o plano que você escolher (free para começar)
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/brasileirao/tabela # Opcional, mas bom: um endpoint que o Render pode verificar
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.18 # Especifique uma versão do Python 3.9.x ou 3.10.x que Render suporta
+      # Você pode adicionar outras variáveis de ambiente aqui se precisar
+      # Por exemplo, se você quisesse tornar a API_FUTEBOL_KEY uma variável de ambiente:
+      # - key: API_FUTEBOL_KEY_EXTERNA
+      #   value: test_9898838f11ffc2a9e6831ffc4621dc 
+      # E no main.py: API_FUTEBOL_KEY = os.getenv("API_FUTEBOL_KEY_EXTERNA") (precisaria de import os)
