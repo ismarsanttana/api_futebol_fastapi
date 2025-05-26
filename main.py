@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 
 # --- Configurações ---
 API_FUTEBOL_BASE_URL = "https://api.api-futebol.com.br/v1"
-API_FUTEBOL_KEY = "live_e25d485aad41c97d4c33f8ebf4f35c" # Sua chave da api-futebol
+API_FUTEBOL_KEY = "live_e25d485aad41c97d4c33f8ebf4f35c" # Sua chave API OFICIAL da api-futebol
 CAMPEONATO_BRASILEIRAO_ID = "10" # ID do campeonato
 # Cache da API FastAPI válido por 1 hora (3600 segundos)
 CACHE_DURATION_SECONDS = 1 * 60 * 60
@@ -17,7 +17,7 @@ UPDATE_INTERVAL_SECONDS = 8 * 60 * 60
 app = FastAPI(
     title="API Tabela Brasileirão com Cache",
     description="Fornece a tabela de classificação do Brasileirão (ID 10) com cache.",
-    version="1.2.0"
+    version="1.2.1" # Incrementando a versão para refletir a mudança
 )
 
 # --- Cache Simples em Memória ---
@@ -31,16 +31,17 @@ tabela_cache: Dict[str, Any] = {
 # --- Função para buscar dados da API externa ---
 async def fetch_data_from_external_api() -> Optional[List[Dict[str, Any]]]:
     target_url = f"{API_FUTEBOL_BASE_URL}/campeonatos/{CAMPEONATO_BRASILEIRAO_ID}/tabela"
-    # No seu teste, a chave funcionou diretamente, sem "Bearer "
-    headers = {"Authorization": API_FUTEBOL_KEY}
+    # CORREÇÃO: Adicionando "Bearer " ao token de autorização
+    headers = {"Authorization": f"Bearer {API_FUTEBOL_KEY}"} 
     
-    print(f"[{datetime.now()}] Tentando buscar dados frescos de {target_url}")
+    print(f"[{datetime.now()}] Tentando buscar dados frescos de {target_url} com header: {headers.get('Authorization', 'Chave não encontrada no header')[:15]}...") # Log para depurar o header (mostrando apenas o início)
+    
     async with httpx.AsyncClient() as client:
         try:
             # Aumentar o timeout geral da requisição httpx para ser mais tolerante
             response = await client.get(target_url, headers=headers, timeout=30.0)
-            response.raise_for_status()
-            print(f"[{datetime.now()}] Sucesso ao buscar dados da API externa.")
+            response.raise_for_status() # Lança uma exceção para respostas de erro (4xx ou 5xx)
+            print(f"[{datetime.now()}] Sucesso ao buscar dados da API externa. Status: {response.status_code}")
             return response.json()
         except httpx.TimeoutException:
             print(f"[{datetime.now()}] Timeout ao buscar dados da API externa.")
@@ -74,8 +75,6 @@ async def update_cache_if_needed():
 
 # --- Tarefa de atualização periódica do cache ---
 async def periodic_cache_updater():
-    # Delay inicial um pouco maior para garantir que o app esteja totalmente iniciado
-    # e o servidor pronto antes da primeira chamada pesada.
     await asyncio.sleep(45) 
     await update_cache_if_needed() 
     
@@ -85,7 +84,6 @@ async def periodic_cache_updater():
 
 @app.on_event("startup")
 async def startup_event():
-    # Cria uma tarefa em segundo plano que não bloqueia o início da aplicação
     asyncio.create_task(periodic_cache_updater())
     print(f"[{datetime.now()}] API iniciada. Tarefa de atualização periódica de cache agendada.")
 
@@ -94,35 +92,23 @@ async def startup_event():
 async def get_tabela_brasileirao():
     global tabela_cache
 
-    # Se o cache tem dados recentes, sirva-os
     if tabela_cache["data"] and tabela_cache["last_updated"] and \
        (datetime.now() < tabela_cache["last_updated"] + timedelta(seconds=CACHE_DURATION_SECONDS)):
         print(f"[{datetime.now()}] Servindo dados do cache (frescos).")
         return tabela_cache["data"]
 
-    # Se o cache está vazio ou desatualizado, mas uma atualização já está em progresso
     if tabela_cache["is_updating"]:
-        if tabela_cache["data"]: # Se tem dados antigos enquanto atualiza
+        if tabela_cache["data"]:
              print(f"[{datetime.now()}] Atualização em progresso, servindo dados antigos do cache.")
              return tabela_cache["data"]
-        else: # Se não tem nada e está atualizando
+        else:
             print(f"[{datetime.now()}] Atualização inicial em progresso, cache vazio. Tente novamente em breve.")
             raise HTTPException(status_code=503, detail="Dados sendo preparados. Tente novamente em alguns instantes.")
 
-    # Se chegou aqui, o cache está desatualizado ou vazio E NENHUMA atualização está em progresso.
-    # Disparar uma atualização em segundo plano se não houver dados.
     if not tabela_cache["data"]:
         print(f"[{datetime.now()}] Cache vazio e nenhuma atualização em progresso. Disparando atualização...")
-        asyncio.create_task(update_cache_if_needed()) # Não aguarda aqui
+        asyncio.create_task(update_cache_if_needed())
         raise HTTPException(status_code=503, detail="Cache inicializando. Tente novamente em alguns instantes.")
-    else: # Tem dados, mas estão mais velhos que CACHE_DURATION_SECONDS
+    else: 
         print(f"[{datetime.now()}] Cache desatualizado, servindo dados antigos. Atualização em background deve ocorrer.")
-        # A tarefa de background (periodic_cache_updater) cuidará da atualização.
-        # Opcionalmente, poderia disparar uma aqui também se desejado: asyncio.create_task(update_cache_if_needed())
         return tabela_cache["data"]
-
-# Esta seção é para rodar localmente com 'python main.py', mas não é usada pelo Render
-# quando ele executa 'uvicorn main:app ...'
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run(app, host="0.0.0.0", port=8000)
