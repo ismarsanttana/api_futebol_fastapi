@@ -1,6 +1,6 @@
-# main.py
+# main.py (VERSÃO COM CORS - COLE ESTA NO SEU GITHUB SE AINDA NÃO O FEZ)
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware # ADICIONADO PARA CORS
+from fastapi.middleware.cors import CORSMiddleware # IMPORTANTE PARA CORS
 import httpx
 import asyncio
 from datetime import datetime, timedelta
@@ -8,119 +8,115 @@ from typing import Optional, List, Dict, Any
 
 # --- Configurações ---
 API_FUTEBOL_BASE_URL = "https://api.api-futebol.com.br/v1"
-API_FUTEBOL_KEY = "live_e25d485aad41c97d4c33f8ebf4f35c" # Sua chave API OFICIAL
-CAMPEONATO_BRASILEIRAO_ID = "10" # ID do campeonato
-# Cache da API FastAPI válido por 1 hora (3600 segundos)
+API_FUTEBOL_KEY = "live_e25d485aad41c97d4c33f8ebf4f35c" 
+CAMPEONATO_BRASILEIRAO_ID = "10" 
 CACHE_DURATION_SECONDS = 1 * 60 * 60
-# API FastAPI busca novos dados da api-futebol a cada 8 horas (28800 segundos)
 UPDATE_INTERVAL_SECONDS = 8 * 60 * 60
 
 app = FastAPI(
     title="API Tabela Brasileirão com Cache",
     description="Fornece a tabela de classificação do Brasileirão (ID 10) com cache.",
-    version="1.2.2" # Versão incrementada para refletir a adição do CORS
+    version="1.2.3" # Nova versão para CORS e logs
 )
 
 # --- Configuração do CORS ---
-# Lista de origens permitidas. Adicione outros domínios se necessário.
 origins = [
-    "http://localhost",         # Para testes locais comuns
-    "http://localhost:8000",    # Para testes locais com FastAPI rodando na porta 8000
-    "http://127.0.0.1:5500",   # Exemplo se usar Live Server do VSCode em uma porta específica
-    "null",                     # Para permitir testes com arquivos HTML abertos localmente (origin: "null")
-    "https://htmlonlineviewer.net", # Para o visualizador que você está usando
-    # "https://SEU_DOMINIO_WORDPRESS.com", # DESCOMENTE E ADICIONE SEU DOMÍNIO WORDPRESS REAL AQUI QUANDO FOR USAR
+    "http://localhost",
+    "http://localhost:8000",
+    "http://127.0.0.1", # Para cobrir variações de localhost
+    "http://127.0.0.1:5500", 
+    "null", 
+    "https://htmlonlineviewer.net",
+    "http://lncc.br", # Adicionando o domínio onde você está testando
+    "https://lncc.br", # Adicionando com https também
+    # Adicione seu domínio WordPress aqui quando for usá-lo
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # Permite as origens listadas
-    # allow_origins=["*"],       # Alternativa: Permite TODAS as origens (menos seguro para produção)
-    allow_credentials=True,      # Permite cookies (não estamos usando, mas é uma boa prática incluir)
-    allow_methods=["GET"],       # Permite apenas o método GET para esta API específica
-    allow_headers=["*"],         # Permite todos os cabeçalhos
+    allow_origins=origins, 
+    allow_credentials=True,
+    allow_methods=["GET"], 
+    allow_headers=["*"],
 )
 
-# --- Cache Simples em Memória --- (Restante do código permanece o mesmo)
 tabela_cache: Dict[str, Any] = {
-    "data": None,
-    "last_updated": None,
-    "is_updating": False, 
-    "last_attempt_successful": True
+    "data": None, "last_updated": None, "is_updating": False, "last_attempt_successful": True
 }
 
-# --- Função para buscar dados da API externa ---
 async def fetch_data_from_external_api() -> Optional[List[Dict[str, Any]]]:
     target_url = f"{API_FUTEBOL_BASE_URL}/campeonatos/{CAMPEONATO_BRASILEIRAO_ID}/tabela"
     headers = {"Authorization": f"Bearer {API_FUTEBOL_KEY}"} 
-    print(f"[{datetime.now()}] Tentando buscar dados frescos de {target_url} com header: {headers.get('Authorization', 'Chave não encontrada no header')[:15]}...")
+    print(f"[{datetime.now()}] Tentando buscar dados: {target_url} Header Auth: {headers.get('Authorization', '')[:15]}...")
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(target_url, headers=headers, timeout=30.0)
+            print(f"[{datetime.now()}] API Externa Respondeu. Status: {response.status_code}") # Log do status
             response.raise_for_status()
-            print(f"[{datetime.now()}] Sucesso ao buscar dados da API externa. Status: {response.status_code}")
+            print(f"[{datetime.now()}] Sucesso ao buscar dados da API externa.")
             return response.json()
         except httpx.TimeoutException:
-            print(f"[{datetime.now()}] Timeout ao buscar dados da API externa.")
+            print(f"[{datetime.now()}] Timeout API externa.")
             return None
         except httpx.HTTPStatusError as e:
-            print(f"[{datetime.now()}] Erro HTTP da API externa: {e.response.status_code} - {e.response.text}")
+            print(f"[{datetime.now()}] Erro HTTP API externa: {e.response.status_code} - {e.response.text}")
             return None
         except Exception as e:
-            print(f"[{datetime.now()}] Erro genérico ao buscar dados da API externa: {e}")
+            print(f"[{datetime.now()}] Erro genérico API externa: {e}")
             return None
 
-# --- Função de atualização do cache ---
 async def update_cache_if_needed():
     global tabela_cache
     if tabela_cache["is_updating"]:
-        print(f"[{datetime.now()}] Atualização do cache já em progresso. Pulando.")
+        print(f"[{datetime.now()}] Atualização cache em progresso. Pulando.")
         return
     tabela_cache["is_updating"] = True
-    print(f"[{datetime.now()}] Iniciando atualização do cache...")
+    print(f"[{datetime.now()}] Iniciando atualização cache.")
     data = await fetch_data_from_external_api()
     if data:
         tabela_cache["data"] = data
         tabela_cache["last_updated"] = datetime.now()
         tabela_cache["last_attempt_successful"] = True
-        print(f"[{datetime.now()}] Cache atualizado com sucesso.")
+        print(f"[{datetime.now()}] Cache atualizado.")
     else:
         tabela_cache["last_attempt_successful"] = False
-        print(f"[{datetime.now()}] Falha ao buscar novos dados para o cache. Cache anterior mantido (se existir).")
+        print(f"[{datetime.now()}] Falha atualizar cache.")
     tabela_cache["is_updating"] = False
 
-# --- Tarefa de atualização periódica do cache ---
 async def periodic_cache_updater():
-    await asyncio.sleep(45) 
+    await asyncio.sleep(15) # Reduzido para teste mais rápido da primeira carga
+    print(f"[{datetime.now()}] Periodic updater: Chamando update_cache_if_needed pela primeira vez.")
     await update_cache_if_needed() 
     while True:
         await asyncio.sleep(UPDATE_INTERVAL_SECONDS)
+        print(f"[{datetime.now()}] Periodic updater: Chamando update_cache_if_needed.")
         await update_cache_if_needed()
 
 @app.on_event("startup")
 async def startup_event():
+    print(f"[{datetime.now()}] Evento Startup: Agendando periodic_cache_updater.")
     asyncio.create_task(periodic_cache_updater())
-    print(f"[{datetime.now()}] API iniciada. Tarefa de atualização periódica de cache agendada.")
+    print(f"[{datetime.now()}] API iniciada. Tarefa de atualização agendada.")
 
-# --- Endpoint da API ---
 @app.get("/api/brasileirao/tabela", tags=["Classificação"])
 async def get_tabela_brasileirao():
     global tabela_cache
+    print(f"[{datetime.now()}] Endpoint /tabela chamado.")
     if tabela_cache["data"] and tabela_cache["last_updated"] and \
        (datetime.now() < tabela_cache["last_updated"] + timedelta(seconds=CACHE_DURATION_SECONDS)):
-        print(f"[{datetime.now()}] Servindo dados do cache (frescos).")
+        print(f"[{datetime.now()}] Servindo do cache (fresco).")
         return tabela_cache["data"]
     if tabela_cache["is_updating"]:
         if tabela_cache["data"]:
-             print(f"[{datetime.now()}] Atualização em progresso, servindo dados antigos do cache.")
+             print(f"[{datetime.now()}] Atualização em progresso, servindo cache antigo.")
              return tabela_cache["data"]
         else:
-            print(f"[{datetime.now()}] Atualização inicial em progresso, cache vazio. Tente novamente em breve.")
-            raise HTTPException(status_code=503, detail="Dados sendo preparados. Tente novamente em alguns instantes.")
+            print(f"[{datetime.now()}] Atualização inicial em progresso, cache vazio.")
+            raise HTTPException(status_code=503, detail="Dados sendo preparados. Tente em instantes.")
     if not tabela_cache["data"]:
-        print(f"[{datetime.now()}] Cache vazio e nenhuma atualização em progresso. Disparando atualização...")
+        print(f"[{datetime.now()}] Cache vazio, disparando atualização.")
         asyncio.create_task(update_cache_if_needed())
-        raise HTTPException(status_code=503, detail="Cache inicializando. Tente novamente em alguns instantes.")
+        raise HTTPException(status_code=503, detail="Cache inicializando. Tente em instantes.")
     else: 
-        print(f"[{datetime.now()}] Cache desatualizado, servindo dados antigos. Atualização em background deve ocorrer.")
+        print(f"[{datetime.now()}] Cache desatualizado, servindo dados antigos.")
         return tabela_cache["data"]
